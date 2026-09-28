@@ -1,9 +1,20 @@
 {
-  "name":"reward-bot-railway-easy",
-  "version":"1.0.0",
-
-  "private":true,
-  "scripts":{"start":"node index.js"},
-  "engines":{"node":">=20"},
-  "dependencies":{"dotenv": "^16.4.7","express":"^5.1.0","pg":"^8.16.3","telegraf":"^4.16.3","jsonwebtoken":"^9.0.2","cookie-parser":"^1.4.7"}
+  "name": "falak-agent-verified-bot",
+  "version": "2.0.0-ui",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "telegraf": "^4.16.3"
+  }
 }
