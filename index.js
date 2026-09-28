@@ -18,83 +18,88 @@ async function getUser(t){return (await q('SELECT * FROM users WHERE telegram_id
 async function upsert(t,p){let u=await getUser(t.id);if(u)return u;let ref=null;if(p?.startsWith('ref_')){let r=await q('SELECT id FROM users WHERE telegram_id=$1',[Number(p.slice(4))]);ref=r.rows[0]?.id||null}let r=await q('INSERT INTO users(telegram_id,username,first_name,referred_by) VALUES($1,$2,$3,$4) RETURNING *',[t.id,t.username||null,t.first_name||'',ref]);if(ref)await q('INSERT INTO referrals(referrer_id,referred_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[ref,r.rows[0].id]);return r.rows[0]}
 async function channels(){return (await q('SELECT * FROM channels WHERE active AND required ORDER BY id')).rows}
 async function verified(ctx){for(const c of await channels()){try{let m=await ctx.telegram.getChatMember(c.chat_id,ctx.from.id);if(!(['creator','administrator','member'].includes(m.status)||(m.status==='restricted'&&m.is_member)))return false}catch{return false}}return true}
-function menu(){
-  return Markup.keyboard([
-    ['🎁 Earn', '💰 Wallet'],
-    ['👥 Invite', '👤 Account'],
-    ['🎟 Gift Code', '📜 History'],
-    ['🆘 Support']
-  ]).resize().persistent()
-}
-
+function menu(){return Markup.keyboard([
+  ['🎁 Earn','💰 Wallet'],
+  ['👥 Invite','👤 Account'],
+  ['🎟 Gift Code','📜 History'],
+  ['🆘 Support']
+]).resize().persistent()}
 async function gate(ctx){if(await verified(ctx))return true;let cs=await channels(),rows=cs.map(c=>[Markup.button.url('📢 '+c.title,c.invite_url||`https://t.me/${String(c.username||'').replace('@','')}`)]);rows.push([Markup.button.callback('✅ Verify','verify')]);await ctx.reply('🔒 Join all required channels first.',Markup.inlineKeyboard(rows));return false}
-async function home(ctx){let u=await getUser(ctx.from.id),cur=await setting('currency','₹');ctx.reply(`🏠 <b>FALAK AGENT VERIFIED</b>
-━━━━━━━━━━━━━━━━━━
-
-💰 <b>AVAILABLE BALANCE</b>
-<code>${cur}${Number(u.balance).toFixed(2)}</code>
-
-🎁 <b>TOTAL EARNED</b>  <code>${cur}${Number(u.lifetime_earned).toFixed(2)}</code>
-
-⚡ <i>Choose an option below to continue.</i>`,{parse_mode:'HTML',...menu()})}${Number(u.balance).toFixed(2)}\n🎁 <b>Total Earned:</b> ${c}${Number(u.lifetime_earned).toFixed(2)}\n\n⚡ Choose an option below to continue.`,{parse_mode:'HTML',...menu()})}
+async function home(ctx){
+  let u=await getUser(ctx.from.id),c=await setting('currency','₹');
+  return ctx.reply(
+    `🏠 <b>FALAK AGENT VERIFIED</b>\n━━━━━━━━━━━━━━━━━━\n\n💰 <b>AVAILABLE BALANCE</b>\n<code>${c}${Number(u.balance).toFixed(2)}</code>\n\n🎁 <b>TOTAL EARNED</b>\n<code>${c}${Number(u.lifetime_earned).toFixed(2)}</code>\n\n━━━━━━━━━━━━━━━━━━\n⚡ <i>Choose an option below to continue.</i>`,
+    {parse_mode:'HTML',...menu()}
+  );
+}
 bot.start(async c=>{await upsert(c.from,c.startPayload);if(!(await verified(c))){let cs=await channels(),rows=cs.map(x=>[Markup.button.url('📢 '+x.title,x.invite_url||`https://t.me/${String(x.username||'').replace('@','')}`)]);rows.push([Markup.button.callback('✅ Verify','verify')]);return c.reply('👋 Welcome!\n\n🎁 Complete tasks and earn rewards.\n👥 Invite friends.\n💸 Withdraw eligible earnings.\n\n🔒 Join required channels.',Markup.inlineKeyboard(rows))}home(c)});
 bot.action('verify',async c=>{await c.answerCbQuery();if(await gate(c))home(c)});
+
 function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 bot.hears('🎁 Earn',async c=>{
   if(!(await gate(c)))return;
   let ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;
   if(!ts.length)return c.reply(
-    `🎁 <b>REWARDS</b>\n━━━━━━━━━━━━━━━━━━\n\n📭 <b>No tasks available</b>\n\nNew earning opportunities will appear here soon.`
-    ,{parse_mode:'HTML'});
+    `🎁 <b>REWARDS</b>\n━━━━━━━━━━━━━━━━━━\n\n📭 <b>No tasks available</b>\n\nNew earning opportunities will appear here soon.`,
+    {parse_mode:'HTML'}
+  );
   for(let t of ts)await c.reply(
-    `🎁 <b>${esc(t.title)}</b>\n━━━━━━━━━━━━━━━━━━\n\n${esc(t.description||'Complete this task to earn a reward.')}\n\n💰 <b>REWARD</b>  <code>${esc(await setting('currency','₹'))}${Number(t.reward).toFixed(2)}</code>\n🔁 <b>DAILY LIMIT</b>  ${Number(t.daily_limit)}`
-    ,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀  START TASK',`task:${t.id}`)]])});
+    `🎁 <b>${esc(t.title)}</b>\n━━━━━━━━━━━━━━━━━━\n\n${esc(t.description||'Complete this task to earn a reward.')}\n\n💰 <b>REWARD</b>  <code>${esc(await setting('currency','₹'))}${Number(t.reward).toFixed(2)}</code>\n🔁 <b>DAILY LIMIT</b>  ${Number(t.daily_limit)}`,
+    {parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('🚀  START TASK',`task:${t.id}`)]])}
+  );
 });
 
 bot.hears('💰 Wallet',async c=>{
   let u=await getUser(c.from.id),cur=await setting('currency','₹'),min=await setting('min_withdrawal','100');
   c.reply(
-    `💰 <b>WALLET</b>\n━━━━━━━━━━━━━━━━━━\n\n💵 <b>AVAILABLE</b>\n<code>${cur}${Number(u.balance).toFixed(2)}</code>\n\n🎁 <b>TOTAL EARNED</b>\n<code>${cur}${Number(u.lifetime_earned).toFixed(2)}</code>\n\n📤 <b>TOTAL WITHDRAWN</b>\n<code>${cur}${Number(u.lifetime_withdrawn).toFixed(2)}</code>\n\n━━━━━━━━━━━━━━━━━━\n📌 Minimum withdrawal: <b>${cur}${min}</b>\n\nUse:\n<code>/withdraw ${min} upi yourupi@bank</code>`
-    ,{parse_mode:'HTML'});
+    `💰 <b>WALLET</b>\n━━━━━━━━━━━━━━━━━━\n\n💵 <b>AVAILABLE</b>\n<code>${cur}${Number(u.balance).toFixed(2)}</code>\n\n🎁 <b>TOTAL EARNED</b>\n<code>${cur}${Number(u.lifetime_earned).toFixed(2)}</code>\n\n📤 <b>TOTAL WITHDRAWN</b>\n<code>${cur}${Number(u.lifetime_withdrawn).toFixed(2)}</code>\n\n━━━━━━━━━━━━━━━━━━\n📌 Minimum withdrawal: <b>${cur}${min}</b>\n\n💳 <b>Withdraw with:</b>\n<code>/withdraw ${min} upi yourupi@bank</code>`,
+    {parse_mode:'HTML'}
+  );
 });
 
 bot.hears('👥 Invite',async c=>{
   let u=await getUser(c.from.id),me=await c.telegram.getMe();
-  let s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified,coalesce(sum(reward),0) earned FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];
+  let s=(await q("SELECT count(*)::int total,count(*) FILTER (WHERE status='qualified')::int qualified,coalesce(sum(reward),0) earned FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];
   c.reply(
-    `👥 <b>INVITE &amp; EARN</b>\n━━━━━━━━━━━━━━━━━━\n\n🔗 <b>YOUR REFERRAL LINK</b>\n<code>https://t.me/${esc(me.username)}?start=ref_${c.from.id}</code>\n\n👤 Invited       <b>${s.total}</b>\n✅ Qualified     <b>${s.qualified}</b>\n💰 Referral earnings  <code>${esc(await setting('currency','₹'))}${Number(s.earned).toFixed(2)}</code>\n\n💡 Share your link with friends and earn when referrals qualify.`
-    ,{parse_mode:'HTML'});
+    `👥 <b>INVITE &amp; EARN</b>\n━━━━━━━━━━━━━━━━━━\n\n🔗 <b>YOUR REFERRAL LINK</b>\n<code>https://t.me/${esc(me.username)}?start=ref_${c.from.id}</code>\n\n👤 Invited       <b>${s.total}</b>\n✅ Qualified     <b>${s.qualified}</b>\n💰 Earned        <code>${esc(await setting('currency','₹'))}${Number(s.earned).toFixed(2)}</code>\n\n💡 Share your link with friends and earn when referrals qualify.`,
+    {parse_mode:'HTML'}
+  );
 });
 
 bot.hears('👤 Account',async c=>{
   let u=await getUser(c.from.id),cur=await setting('currency','₹');
   c.reply(
-    `👤 <b>MY ACCOUNT</b>\n━━━━━━━━━━━━━━━━━━\n\n🆔 <b>TELEGRAM ID</b>\n<code>${u.telegram_id}</code>\n\n💰 <b>BALANCE</b>      <code>${cur}${Number(u.balance).toFixed(2)}</code>\n🎁 <b>EARNED</b>       <code>${cur}${Number(u.lifetime_earned).toFixed(2)}</code>\n📤 <b>WITHDRAWN</b>    <code>${cur}${Number(u.lifetime_withdrawn).toFixed(2)}</code>\n\n━━━━━━━━━━━━━━━━━━\n⚡ <b>Account status:</b> ${esc(u.status)}`
-    ,{parse_mode:'HTML'});
+    `👤 <b>MY ACCOUNT</b>\n━━━━━━━━━━━━━━━━━━\n\n🆔 <b>TELEGRAM ID</b>\n<code>${u.telegram_id}</code>\n\n💰 <b>BALANCE</b>      <code>${cur}${Number(u.balance).toFixed(2)}</code>\n🎁 <b>EARNED</b>       <code>${cur}${Number(u.lifetime_earned).toFixed(2)}</code>\n📤 <b>WITHDRAWN</b>    <code>${cur}${Number(u.lifetime_withdrawn).toFixed(2)}</code>\n\n━━━━━━━━━━━━━━━━━━\n⚡ <b>Account status:</b> ${esc(u.status)}`,
+    {parse_mode:'HTML'}
+  );
 });
 
 bot.hears('🎟 Gift Code',async c=>{
   c.reply(
-    `🎟 <b>GIFT CODE</b>\n━━━━━━━━━━━━━━━━━━\n\n🎁 Have a reward code?\nEnter it below to redeem your balance:\n\n<code>/gift YOURCODE</code>\n\n<i>Each code can only be redeemed according to its usage limits.</i>`
-    ,{parse_mode:'HTML'});
+    `🎟 <b>GIFT CODE</b>\n━━━━━━━━━━━━━━━━━━\n\n🎁 Have a reward code?\nEnter it below to redeem your reward:\n\n<code>/gift YOURCODE</code>\n\n<i>Each code follows its configured usage limit.</i>`,
+    {parse_mode:'HTML'}
+  );
 });
 
 bot.hears('📜 History',async c=>{
   let u=await getUser(c.from.id),r=(await q('SELECT * FROM transactions WHERE user_id=$1 ORDER BY id DESC LIMIT 15',[u.id])).rows;
-  let body=r.length?r.map(x=>`• <b>${esc(x.type)}</b>  |  <code>${esc(x.amount)}</code>  |  ${esc(x.status)}`).join('\n'):'<i>No transactions yet.</i>';
+  let body=r.length?r.map(x=>`• <b>${esc(x.type)}</b>  ·  <code>${esc(x.amount)}</code>  ·  ${esc(x.status)}`).join('\n'):'<i>No transactions yet.</i>';
   c.reply(
-    `📜 <b>TRANSACTION HISTORY</b>\n━━━━━━━━━━━━━━━━━━\n\n${body}\n\n━━━━━━━━━━━━━━━━━━\nShowing your latest ${Math.min(r.length,15)} transaction(s).`
-    ,{parse_mode:'HTML'});
+    `📜 <b>TRANSACTION HISTORY</b>\n━━━━━━━━━━━━━━━━━━\n\n${body}\n\n━━━━━━━━━━━━━━━━━━\nShowing your latest ${Math.min(r.length,15)} transaction(s).`,
+    {parse_mode:'HTML'}
+  );
 });
 
 bot.hears('🆘 Support',async c=>{
   let s=String(process.env.SUPPORT_USERNAME||'not_configured').replace('@','');
   c.reply(
-    `🆘 <b>SUPPORT CENTER</b>\n━━━━━━━━━━━━━━━━━━\n\nNeed help with your account, tasks or withdrawal?\n\n👨‍💻 <b>Support:</b> @${esc(s)}\n\nPlease include your Telegram ID when reporting an issue.`
-    ,{parse_mode:'HTML'});
+    `🆘 <b>SUPPORT CENTER</b>\n━━━━━━━━━━━━━━━━━━\n\nNeed help with your account, tasks or withdrawal?\n\n👨‍💻 <b>Support:</b> @${esc(s)}\n\nPlease include your Telegram ID when reporting an issue.`,
+    {parse_mode:'HTML'}
+  );
 });
 
+bot.action('tasks',async c=>{await c.answerCbQuery();if(!(await gate(c)))return;let ts=(await q('SELECT * FROM tasks WHERE active ORDER BY id DESC')).rows;if(!ts.length)return c.reply('📭 No tasks available.',menu());for(let t of ts)await c.reply(`🎁 *${t.title}*\n${t.description||''}\n\n💰 Reward: ${await setting('currency','₹')}${Number(t.reward).toFixed(2)}`,{parse_mode:'Markdown',...Markup.inlineKeyboard([[Markup.button.callback('🚀 Start',`task:${t.id}`)]])})});
 bot.action(/^task:(\d+)$/,async c=>{await c.answerCbQuery();if(!(await gate(c)))return;let u=await getUser(c.from.id),t=(await q('SELECT * FROM tasks WHERE id=$1 AND active',[+c.match[1]])).rows[0];if(!t)return c.reply('Task unavailable.');let n=(await q("SELECT count(*)::int n FROM attempts WHERE user_id=$1 AND task_id=$2 AND created_at>=date_trunc('day',NOW())",[u.id,t.id])).rows[0].n;if(n>=t.daily_limit)return c.reply('❌ Daily limit reached.');let a=await q('INSERT INTO attempts(task_id,user_id) VALUES($1,$2) RETURNING id',[t.id,u.id]);c.reply('🚀 Task started. Demo mode uses manual completion. Connect a real provider callback before paying real ad rewards.',Markup.inlineKeyboard([[Markup.button.callback('✅ Complete',`done:${a.rows[0].id}`)]]))});
 bot.action(/^done:(\d+)$/,async c=>{await c.answerCbQuery();let u=await getUser(c.from.id),a=(await q('SELECT a.*,t.reward FROM attempts a JOIN tasks t ON t.id=a.task_id WHERE a.id=$1 AND a.user_id=$2',[+c.match[1],u.id])).rows[0];if(!a||a.status!=='started')return c.reply('❌ Invalid or already completed.');let client=await db.connect();try{await client.query('BEGIN');await client.query("UPDATE attempts SET status='completed' WHERE id=$1",[a.id]);await client.query('UPDATE users SET balance=balance+$2,lifetime_earned=lifetime_earned+$2 WHERE id=$1',[u.id,a.reward]);await client.query("INSERT INTO transactions(user_id,type,amount,reference) VALUES($1,'task_reward',$2,$3)",[u.id,a.reward,'TASK-'+a.id]);await client.query('COMMIT');c.reply(`🎉 Reward added: ${await setting('currency','₹')}${Number(a.reward).toFixed(2)}`)}catch(e){await client.query('ROLLBACK');c.reply('❌ '+e.message)}finally{client.release()}});
 bot.action('invite',async c=>{await c.answerCbQuery();let u=await getUser(c.from.id),me=await c.telegram.getMe(),s=(await q("SELECT count(*)::int total,count(*) FILTER(WHERE status='qualified')::int qualified,coalesce(sum(reward),0) earned FROM referrals WHERE referrer_id=$1",[u.id])).rows[0];c.reply(`👥 *Invite & Earn*\n\n🔗 https://t.me/${me.username}?start=ref_${c.from.id}\n\n👤 Invited: ${s.total}\n✅ Qualified: ${s.qualified}\n💰 Earned: ${await setting('currency','₹')}${Number(s.earned).toFixed(2)}`,{parse_mode:'Markdown',...menu()})});
